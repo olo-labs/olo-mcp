@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 from datetime import datetime
-from typing import Literal, TypedDict, cast
+from typing import Any, Literal, TypedDict, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, Response
 
 Number = int | float
 Operation = Literal["add", "subtract", "multiply", "divide"]
@@ -21,6 +22,7 @@ DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8000
 DEFAULT_TIMEZONE = "Asia/Kolkata"
 VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+SWAGGER_UI_VERSION = "5.33.0"
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +116,312 @@ def calculate(a: Number, b: Number, operation: Operation) -> CalculationResult:
     return {"a": a, "b": b, "operation": operation, "result": result}
 
 
+def _error(message: str, status_code: int = 400) -> JSONResponse:
+    """Return the stable error shape used by the documented REST adapters."""
+    return JSONResponse({"error": message}, status_code=status_code)
+
+
+async def _json_object(request: Request) -> dict[str, Any] | JSONResponse:
+    """Read one JSON object or return a client-safe validation response."""
+    try:
+        payload = await request.json()
+    except (ValueError, UnicodeDecodeError):
+        return _error("Request body must be valid JSON")
+    if not isinstance(payload, dict):
+        return _error("Request body must be a JSON object")
+    return payload
+
+
+@mcp.custom_route("/api/tools/hello", methods=["POST"])
+async def hello_api(request: Request) -> Response:
+    """HTTP adapter for the ``hello`` MCP tool."""
+    payload = await _json_object(request)
+    if isinstance(payload, JSONResponse):
+        return payload
+    name = payload.get("name")
+    if not isinstance(name, str):
+        return _error("name must be a string")
+    try:
+        return JSONResponse({"result": hello(name)})
+    except ToolError as exc:
+        return _error(str(exc))
+
+
+@mcp.custom_route("/api/tools/get-current-time", methods=["GET"])
+async def get_current_time_api(_request: Request) -> Response:
+    """HTTP adapter for the ``get_current_time`` MCP tool."""
+    try:
+        return JSONResponse(get_current_time())
+    except ToolError as exc:
+        return _error(str(exc), status_code=500)
+
+
+@mcp.custom_route("/api/tools/calculate", methods=["POST"])
+async def calculate_api(request: Request) -> Response:
+    """HTTP adapter for the ``calculate`` MCP tool."""
+    payload = await _json_object(request)
+    if isinstance(payload, JSONResponse):
+        return payload
+
+    a = payload.get("a")
+    b = payload.get("b")
+    operation = payload.get("operation")
+    if isinstance(a, bool) or not isinstance(a, (int, float)):
+        return _error("a must be a number")
+    if isinstance(b, bool) or not isinstance(b, (int, float)):
+        return _error("b must be a number")
+    if operation not in {"add", "subtract", "multiply", "divide"}:
+        return _error("operation must be add, subtract, multiply, or divide")
+
+    try:
+        result = calculate(a, b, cast(Operation, operation))
+    except ToolError as exc:
+        return _error(str(exc))
+    return JSONResponse(result)
+
+
+OPENAPI_SCHEMA: dict[str, Any] = {
+    "openapi": "3.1.0",
+    "info": {
+        "title": "Simple MCP Server HTTP API",
+        "version": "1.0.0",
+        "description": (
+            "Swagger documentation for health checks and REST adapters over the "
+            "same functions exposed as MCP tools. MCP clients should use /mcp."
+        ),
+    },
+    "servers": [{"url": "/"}],
+    "tags": [
+        {"name": "Operations", "description": "Server health and metadata"},
+        {"name": "Tool adapters", "description": "HTTP adapters for MCP tools"},
+        {"name": "MCP", "description": "Native MCP protocol transport"},
+    ],
+    "paths": {
+        "/health": {
+            "get": {
+                "tags": ["Operations"],
+                "summary": "Check server health",
+                "operationId": "health",
+                "responses": {
+                    "200": {
+                        "description": "Server is healthy",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/HealthResponse"}
+                            }
+                        },
+                    }
+                },
+            }
+        },
+        "/api/tools/hello": {
+            "post": {
+                "tags": ["Tool adapters"],
+                "summary": "Return a greeting",
+                "operationId": "hello",
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/HelloRequest"},
+                            "example": {"name": "Anupriya"},
+                        }
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "Greeting",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/HelloResponse"}
+                            }
+                        },
+                    },
+                    "400": {"$ref": "#/components/responses/BadRequest"},
+                },
+            }
+        },
+        "/api/tools/get-current-time": {
+            "get": {
+                "tags": ["Tool adapters"],
+                "summary": "Return the configured server time",
+                "operationId": "getCurrentTime",
+                "responses": {
+                    "200": {
+                        "description": "Current server time",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/TimeResponse"}
+                            }
+                        },
+                    }
+                },
+            }
+        },
+        "/api/tools/calculate": {
+            "post": {
+                "tags": ["Tool adapters"],
+                "summary": "Perform a calculation",
+                "operationId": "calculate",
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/CalculationRequest"},
+                            "example": {"a": 25, "b": 12, "operation": "multiply"},
+                        }
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "Calculation result",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/CalculationResponse"}
+                            }
+                        },
+                    },
+                    "400": {"$ref": "#/components/responses/BadRequest"},
+                },
+            }
+        },
+        "/mcp": {
+            "post": {
+                "tags": ["MCP"],
+                "summary": "Exchange an MCP Streamable HTTP message",
+                "description": (
+                    "Native MCP clients manage initialization, request IDs, and "
+                    "content negotiation. Prefer an MCP SDK instead of Swagger "
+                    "for this protocol endpoint."
+                ),
+                "operationId": "mcpMessage",
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {"type": "object", "additionalProperties": True}
+                        }
+                    },
+                },
+                "responses": {
+                    "200": {"description": "MCP JSON response"},
+                    "202": {"description": "MCP notification accepted"},
+                },
+            }
+        },
+    },
+    "components": {
+        "schemas": {
+            "HealthResponse": {
+                "type": "object",
+                "required": ["status"],
+                "properties": {"status": {"type": "string", "example": "ok"}},
+            },
+            "HelloRequest": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["name"],
+                "properties": {"name": {"type": "string", "minLength": 1}},
+            },
+            "HelloResponse": {
+                "type": "object",
+                "required": ["result"],
+                "properties": {"result": {"type": "string"}},
+            },
+            "TimeResponse": {
+                "type": "object",
+                "required": ["datetime", "timezone"],
+                "properties": {
+                    "datetime": {"type": "string", "format": "date-time"},
+                    "timezone": {"type": "string"},
+                },
+            },
+            "CalculationRequest": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["a", "b", "operation"],
+                "properties": {
+                    "a": {"type": "number"},
+                    "b": {"type": "number"},
+                    "operation": {
+                        "type": "string",
+                        "enum": ["add", "subtract", "multiply", "divide"],
+                    },
+                },
+            },
+            "CalculationResponse": {
+                "allOf": [
+                    {"$ref": "#/components/schemas/CalculationRequest"},
+                    {
+                        "type": "object",
+                        "required": ["result"],
+                        "properties": {"result": {"type": "number"}},
+                    },
+                ]
+            },
+            "ErrorResponse": {
+                "type": "object",
+                "required": ["error"],
+                "properties": {"error": {"type": "string"}},
+            },
+        },
+        "responses": {
+            "BadRequest": {
+                "description": "Invalid request",
+                "content": {
+                    "application/json": {
+                        "schema": {"$ref": "#/components/schemas/ErrorResponse"}
+                    }
+                },
+            }
+        },
+    },
+}
+
+
+@mcp.custom_route("/openapi.json", methods=["GET"])
+async def openapi_schema(_request: Request) -> Response:
+    """Return the OpenAPI document consumed by Swagger UI."""
+    return JSONResponse(OPENAPI_SCHEMA)
+
+
+@mcp.custom_route("/docs", methods=["GET"])
+async def swagger_ui(_request: Request) -> Response:
+    """Serve Swagger UI with pinned assets and a restrictive CSP."""
+    nonce = secrets.token_urlsafe(18)
+    asset_root = f"https://cdn.jsdelivr.net/npm/swagger-ui-dist@{SWAGGER_UI_VERSION}"
+    html = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Simple MCP Server API</title>
+  <link rel="stylesheet" href="{asset_root}/swagger-ui.css">
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="{asset_root}/swagger-ui-bundle.js"></script>
+  <script nonce="{nonce}">
+    SwaggerUIBundle({{
+      url: "/openapi.json",
+      dom_id: "#swagger-ui",
+      deepLinking: true,
+      displayRequestDuration: true,
+      persistAuthorization: false
+    }});
+  </script>
+</body>
+</html>"""
+    csp = (
+        "default-src 'none'; "
+        f"script-src https://cdn.jsdelivr.net 'nonce-{nonce}'; "
+        "style-src https://cdn.jsdelivr.net 'unsafe-inline'; "
+        "img-src data: https://validator.swagger.io; "
+        "connect-src 'self'"
+    )
+    return HTMLResponse(html, headers={"Content-Security-Policy": csp})
+
+
 @mcp.custom_route("/health", methods=["GET"])
 async def health(_request: Request) -> Response:
     """Return a lightweight liveness response outside the MCP protocol."""
@@ -151,6 +459,7 @@ def main() -> None:
     logger.info("Configured host: %s", host)
     logger.info("Configured port: %s", port)
     logger.info("MCP endpoint: http://%s:%s/mcp", host, port)
+    logger.info("Swagger UI: http://%s:%s/docs", host, port)
 
     try:
         mcp.run(

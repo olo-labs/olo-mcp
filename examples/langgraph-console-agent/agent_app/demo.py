@@ -31,6 +31,16 @@ DEMO_CALLS: tuple[tuple[str, dict[str, Any]], ...] = (
     ("calculate", {"a": 25, "b": 12, "operation": "multiply"}),
 )
 
+REST_DEMO_CALLS: tuple[tuple[str, str, dict[str, Any]], ...] = (
+    ("POST", "/api/tools/hello", {"name": "Anupriya"}),
+    ("GET", "/api/tools/get-current-time", {}),
+    (
+        "POST",
+        "/api/tools/calculate",
+        {"a": 25, "b": 12, "operation": "multiply"},
+    ),
+)
+
 
 def _arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -47,9 +57,15 @@ def _json(value: Any) -> str:
 
 
 def _show_exchange(
-    title: str, *, url: str, payload: dict[str, Any], response: Any
+    title: str,
+    *,
+    http_method: str,
+    url: str,
+    payload: dict[str, Any],
+    response: Any,
 ) -> None:
     print(f"\n=== {title} ===")
+    print(f"HTTP METHOD: {http_method}")
     print(f"URL: {url}")
     print("PAYLOAD:")
     print(_json(payload))
@@ -59,15 +75,30 @@ def _show_exchange(
 
 async def _show_all_mcp_apis(mcp_url: str) -> None:
     endpoint_health = health_url(mcp_url)
+    base_url = mcp_url.removesuffix("/mcp")
     async with httpx.AsyncClient(timeout=15) as http_client:
         health_response = await http_client.get(endpoint_health)
         health_response.raise_for_status()
         _show_exchange(
             "Health API",
+            http_method="GET",
             url=endpoint_health,
             payload={"method": "GET"},
             response=health_response.json(),
         )
+
+        for method, path, payload in REST_DEMO_CALLS:
+            url = f"{base_url}{path}"
+            request_options = {"json": payload} if method == "POST" else {}
+            response = await http_client.request(method, url, **request_options)
+            response.raise_for_status()
+            _show_exchange(
+                f"REST tool adapter: {path.rsplit('/', 1)[-1]}",
+                http_method=method,
+                url=url,
+                payload=payload,
+                response=response.json(),
+            )
 
     async with streamable_http_client(mcp_url) as (read_stream, write_stream, _):
         async with ClientSession(read_stream, write_stream) as session:
@@ -75,6 +106,7 @@ async def _show_all_mcp_apis(mcp_url: str) -> None:
             tools_response = await session.list_tools()
             _show_exchange(
                 "MCP tool discovery",
+                http_method="POST",
                 url=mcp_url,
                 payload={"jsonrpc": "2.0", "method": "tools/list", "params": {}},
                 response=tools_response,
@@ -97,6 +129,7 @@ async def _show_all_mcp_apis(mcp_url: str) -> None:
                 result = await session.call_tool(name, arguments)
                 _show_exchange(
                     f"MCP tool: {name}",
+                    http_method="POST",
                     url=mcp_url,
                     payload=payload,
                     response=result,

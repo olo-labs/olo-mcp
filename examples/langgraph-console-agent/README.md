@@ -142,8 +142,9 @@ With the MCP server running at `http://localhost:18001/mcp`, set
 run-sample.bat
 ```
 
-The batch file prints the URL, request payload, and actual response for the
-health endpoint, MCP tool discovery, and every exposed sample tool. It then
+The batch file prints the HTTP method (`GET` or `POST`), URL, request payload,
+and actual response for the health endpoint, Swagger-documented REST adapters,
+MCP tool discovery, and every exposed sample tool. It then
 prints the sample LangGraph prompt and final model output. To supply a different
 prompt, pass it as one quoted argument:
 
