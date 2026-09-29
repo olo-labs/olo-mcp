@@ -1,6 +1,6 @@
 # Simple MCP Server
 
-A deliberately small, production-clean learning project built with Python 3.12 and the [official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk). It exposes three tools over the recommended Streamable HTTP transport, runs locally or in Docker, and publishes a multi-architecture image to Docker Hub after tests pass on `main`.
+A deliberately small, production-clean learning project built with Python 3.12 and the [official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk). It exposes three tools over the recommended Streamable HTTP transport, runs locally or in Docker, and publishes a multi-architecture image plus a GitHub Release after tests pass. A separate LangChain/LangGraph console agent demonstrates guarded use of the Dockerized server.
 
 The current 2.x SDK renamed its high-level `FastMCP` class to `MCPServer`. This project uses that current API rather than the legacy v1 import.
 
@@ -110,6 +110,13 @@ simple-mcp-server/
 ├── app/
 │   ├── __init__.py
 │   └── server.py
+├── examples/
+│   └── langgraph-console-agent/
+│       ├── agent_app/
+│       ├── tests/
+│       ├── .env.example
+│       ├── README.md
+│       └── requirements.txt
 ├── tests/
 │   ├── integration/
 │   │   ├── test_http_server.py
@@ -247,6 +254,27 @@ pytest -m integration
 
 The unit suite covers greeting validation, all calculator operations and errors, timezone behavior, and environment configuration. The integration suite checks generated tool schemas, in-memory MCP discovery and calls, expected MCP error results, the ASGI health route, and a real Streamable HTTP server subprocess on a temporary port. The GitHub workflow runs the complete suite before the image publishing job can start.
 
+The console-agent tests use their own environment because the current LangChain MCP adapter and this MCP 2.x server intentionally have different Python dependency sets. See [the agent example](examples/langgraph-console-agent/README.md) for its no-cost unit-test command.
+
+## LangGraph console agent example
+
+The production-oriented sample in [`examples/langgraph-console-agent`](examples/langgraph-console-agent/README.md) is a standalone console app. It discovers this server's tools from the Docker container over Streamable HTTP and adds an explicit tool allowlist, PII controls, prompt-injection checks, bounded retries, model fallback, execution limits, durable SQLite checkpoints, context summarization, structured logs, and optional human approval.
+
+Quick start:
+
+```bash
+docker compose up -d
+cd examples/langgraph-console-agent
+python -m venv .venv
+# Activate .venv, then:
+python -m pip install -r requirements-dev.txt
+cp .env.example .env
+# Add OPENAI_API_KEY to .env
+python -m agent_app
+```
+
+The server stays in Docker; the agent runs locally in its own Python environment. The example README includes PowerShell commands, configuration, threat-model boundaries, privacy guidance, tests, and production-hardening notes.
+
 ## Docker
 
 ### Build and run locally
@@ -316,7 +344,7 @@ docker run -d \
 
 Both `linux/amd64` and `linux/arm64` images are published in one multi-architecture manifest.
 
-## Automatic Docker Hub Publishing
+## Automatic Docker Hub and GitHub Release publishing
 
 The workflow at `.github/workflows/docker-publish.yml` runs for a push or merge to `main`, can be started manually, and also supports tags shaped like `v1.0.0`.
 
@@ -325,7 +353,7 @@ Commit / Merge to main
           ↓
 GitHub Action starts
           ↓
-Tests
+Server and agent tests
           ↓
 Docker Buildx
           ↓
@@ -333,7 +361,9 @@ Docker Hub Login
           ↓
 Multi-architecture image push
           ↓
-Docker Hub
+Docker Hub image available
+          ↓
+GitHub Release with source archive and checksum
 ```
 
 Every successful `main` build publishes:
@@ -343,7 +373,9 @@ Every successful `main` build publishes:
 <username>/simple-mcp-server:sha-<short-commit-sha>
 ```
 
-A tag such as `v1.2.3` additionally publishes semantic tags such as `1.2.3` and `1.2`. If tests fail, the dependent publish job does not run.
+A tag such as `v1.2.3` additionally publishes semantic tags such as `1.2.3` and `1.2`. The image includes provenance and an SBOM. If either test suite fails, the dependent publish job does not run.
+
+After the image push succeeds, the same job creates a GitHub Release. A `v1.2.3` push uses that release tag; a `main` or manual build uses `build-<short-commit-sha>`. Each release contains a Git source archive and `SHA256SUMS.txt`, and its notes list the exact Docker image tags. Re-running the workflow for the same commit updates the existing build release and replaces its assets, so it does not create duplicates.
 
 ### Required GitHub secrets
 
@@ -381,12 +413,13 @@ GitHub
 6. Commit the code.
 7. Push the `main` branch.
 8. Open GitHub Actions and select **Docker Publish**.
-9. Confirm the test job passes.
+9. Confirm both the server and console-agent test jobs pass.
 10. Confirm the multi-architecture build and publish job passes.
 11. Confirm `latest` and `sha-...` appear in Docker Hub.
-12. Pull with `docker pull USERNAME/simple-mcp-server:latest`.
-13. Run the container and confirm `http://localhost:8000/health` returns `{"status":"ok"}`.
-14. Connect an MCP client to `http://localhost:8000/mcp`.
+12. Confirm a `build-<short-commit-sha>` release appears on the GitHub Releases page with its archive and checksum.
+13. Pull with `docker pull USERNAME/simple-mcp-server:latest`.
+14. Run the container and confirm `http://localhost:8000/health` returns `{"status":"ok"}`.
+15. Connect an MCP client or the sample console agent to `http://localhost:8000/mcp`.
 
 Typical first push commands:
 

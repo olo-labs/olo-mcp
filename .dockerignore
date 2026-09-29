@@ -6,6 +6,7 @@ __pycache__
 .pytest_cache
 .env
 tests
+examples
 README.md
 requirements-dev.txt
 .idea

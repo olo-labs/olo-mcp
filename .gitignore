@@ -6,3 +6,7 @@ __pycache__/
 .idea/
 .vscode/
 .DS_Store
+*.db
+*.db-shm
+*.db-wal
+.agent-state/
