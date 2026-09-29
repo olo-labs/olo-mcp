@@ -133,6 +133,27 @@ Reuse a durable conversation:
 python -m agent_app --thread-id customer-demo
 ```
 
+## Windows batch demonstration
+
+With the MCP server running at `http://localhost:18001/mcp`, set
+`OPENAI_API_KEY` in `.env` and run:
+
+```bat
+run-sample.bat
+```
+
+The batch file prints the URL, request payload, and actual response for the
+health endpoint, MCP tool discovery, and every exposed sample tool. It then
+prints the sample LangGraph prompt and final model output. To supply a different
+prompt, pass it as one quoted argument:
+
+```bat
+run-sample.bat "What time is it, and what is 42 divided by 7?"
+```
+
+The request payloads displayed for MCP calls are their JSON-RPC logical method
+and parameters. Session negotiation and request IDs are managed by the MCP SDK.
+
 ## Human approval mode
 
 Set this in `.env`:
