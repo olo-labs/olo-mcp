@@ -1,0 +1,14 @@
+services:
+  mcp-server:
+    build:
+      context: .
+    image: "${DOCKERHUB_USERNAME:-local}/simple-mcp-server:${IMAGE_TAG:-latest}"
+    container_name: simple-mcp-server
+    restart: unless-stopped
+    environment:
+      TZ: "${TZ:-Asia/Kolkata}"
+      MCP_HOST: "${MCP_HOST:-0.0.0.0}"
+      MCP_PORT: "${MCP_PORT:-8000}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+    ports:
+      - "${MCP_PORT:-8000}:${MCP_PORT:-8000}"
