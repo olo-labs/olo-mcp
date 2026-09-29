@@ -8,6 +8,7 @@ import socket
 import subprocess
 import sys
 import time
+import json
 import urllib.request
 from collections.abc import Iterator
 
@@ -75,6 +76,30 @@ def test_real_http_health_endpoint(running_server: str) -> None:
     with urllib.request.urlopen(f"{running_server}/health", timeout=3) as response:
         assert response.status == 200
         assert response.read() == b'{"status":"ok"}'
+
+
+def test_real_http_swagger_and_rest_adapter(running_server: str) -> None:
+    with urllib.request.urlopen(f"{running_server}/docs", timeout=3) as response:
+        assert response.status == 200
+        assert b"SwaggerUIBundle" in response.read()
+
+    with urllib.request.urlopen(
+        f"{running_server}/openapi.json", timeout=3
+    ) as response:
+        schema = json.loads(response.read())
+        assert schema["openapi"] == "3.1.0"
+
+    request = urllib.request.Request(
+        f"{running_server}/api/tools/calculate",
+        data=json.dumps(
+            {"a": 25, "b": 12, "operation": "multiply"}
+        ).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=3) as response:
+        assert response.status == 200
+        assert json.loads(response.read())["result"] == 300
 
 
 def test_real_http_mcp_discovery_and_calls(running_server: str) -> None:

@@ -28,6 +28,69 @@ def test_health_route() -> None:
     assert body == {"status": "ok"}
 
 
+def test_swagger_ui_and_openapi_schema() -> None:
+    async def request_docs() -> tuple[object, object]:
+        app = mcp.streamable_http_app(
+            host="127.0.0.1", json_response=True, stateless_http=True
+        )
+        transport = httpx2.ASGITransport(app=app)
+        async with httpx2.AsyncClient(
+            transport=transport, base_url="http://127.0.0.1"
+        ) as client:
+            docs = await client.get("/docs")
+            schema = await client.get("/openapi.json")
+            return docs, schema
+
+    docs, schema = asyncio.run(request_docs())
+    assert docs.status_code == 200  # type: ignore[union-attr]
+    assert "SwaggerUIBundle" in docs.text  # type: ignore[union-attr]
+    assert "Content-Security-Policy" in docs.headers  # type: ignore[union-attr]
+    assert schema.status_code == 200  # type: ignore[union-attr]
+    document = schema.json()  # type: ignore[union-attr]
+    assert document["openapi"] == "3.1.0"
+    assert set(document["paths"]) == {
+        "/health",
+        "/api/tools/hello",
+        "/api/tools/get-current-time",
+        "/api/tools/calculate",
+        "/mcp",
+    }
+
+
+def test_documented_rest_tool_adapters() -> None:
+    async def call_adapters() -> tuple[object, object, object, object]:
+        app = mcp.streamable_http_app(
+            host="127.0.0.1", json_response=True, stateless_http=True
+        )
+        transport = httpx2.ASGITransport(app=app)
+        async with httpx2.AsyncClient(
+            transport=transport, base_url="http://127.0.0.1"
+        ) as client:
+            greeting = await client.post(
+                "/api/tools/hello", json={"name": "Anupriya"}
+            )
+            current_time = await client.get("/api/tools/get-current-time")
+            calculation = await client.post(
+                "/api/tools/calculate",
+                json={"a": 25, "b": 12, "operation": "multiply"},
+            )
+            invalid = await client.post(
+                "/api/tools/calculate",
+                json={"a": 10, "b": 0, "operation": "divide"},
+            )
+            return greeting, current_time, calculation, invalid
+
+    greeting, current_time, calculation, invalid = asyncio.run(call_adapters())
+    assert greeting.status_code == 200  # type: ignore[union-attr]
+    assert greeting.json() == {"result": "Hello Anupriya!"}  # type: ignore[union-attr]
+    assert current_time.status_code == 200  # type: ignore[union-attr]
+    assert current_time.json()["timezone"] == "Asia/Kolkata"  # type: ignore[union-attr]
+    assert calculation.status_code == 200  # type: ignore[union-attr]
+    assert calculation.json()["result"] == 300  # type: ignore[union-attr]
+    assert invalid.status_code == 400  # type: ignore[union-attr]
+    assert invalid.json() == {"error": "Cannot divide by zero"}  # type: ignore[union-attr]
+
+
 def test_client_discovers_tools_and_generated_schemas() -> None:
     async def discover() -> dict[str, dict[str, object]]:
         async with Client(mcp) as client:

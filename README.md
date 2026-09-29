@@ -18,6 +18,22 @@ The endpoints are:
 
 - MCP: `http://localhost:8000/mcp`
 - Health: `http://localhost:8000/health`
+- Swagger UI: `http://localhost:8000/docs`
+- OpenAPI document: `http://localhost:8000/openapi.json`
+
+Swagger UI documents HTTP adapters over the same functions used by the MCP
+tools. This makes browser-based exploration and conventional HTTP integration
+easy without changing the native MCP endpoint:
+
+| HTTP method | Path | Equivalent MCP tool |
+| --- | --- | --- |
+| `POST` | `/api/tools/hello` | `hello` |
+| `GET` | `/api/tools/get-current-time` | `get_current_time` |
+| `POST` | `/api/tools/calculate` | `calculate` |
+
+Open `http://localhost:8000/docs` and select **Try it out** to execute an
+adapter. Swagger UI assets are loaded from the pinned `swagger-ui-dist` 5.33.0
+CDN release; `/openapi.json` and every API operation are served locally.
 
 ## How MCP works
 
@@ -304,6 +320,12 @@ Expected response:
 {"status":"ok"}
 ```
 
+Open the interactive API documentation:
+
+```text
+http://localhost:8000/docs
+```
+
 Follow logs:
 
 ```bash
@@ -439,6 +461,8 @@ This is a learning server and intentionally has no authentication. Do not expose
 - Inputs are type-checked through MCP schemas, and expected failures are returned as tool errors.
 - Logs identify tool calls but do not record secrets.
 - `/health` is intentionally public and contains no private data.
+- `/docs`, `/openapi.json`, and the REST tool adapters have no authentication,
+  just like `/mcp`; protect all of them before an internet-facing deployment.
 
 Authentication and authorization are sensible future additions, but are omitted here so the MCP fundamentals remain easy to study.
 
@@ -449,6 +473,10 @@ Authentication and authorization are sensible future additions, but are omitted 
 **PowerShell blocks virtual-environment activation:** Run `Set-ExecutionPolicy -Scope Process Bypass`, then retry `.venv\Scripts\Activate.ps1`, or use `.venv\Scripts\python.exe` directly.
 
 **The server is running but `/mcp` looks broken in a browser:** That path expects MCP protocol requests. Test `/health` with `curl` or `Invoke-RestMethod`, then connect with an MCP client.
+
+**Swagger UI is blank but `/openapi.json` works:** The UI loads its pinned
+JavaScript and CSS from `cdn.jsdelivr.net`. Allow that host in the browser or
+consume the OpenAPI document directly in an API client.
 
 **A tool call fails:** Check `result.is_error` in the client and read the returned content. Check server logs with `docker logs -f simple-mcp-server` or `docker compose logs -f`.
 
